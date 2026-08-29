@@ -1,0 +1,74 @@
+[package]
+name = "gpui-tray"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Native system tray integration for GPUI"
+repository = "https://github.com/domenkozar/gpui-tray"
+keywords = ["gpui", "tray", "desktop", "menu"]
+categories = ["gui"]
+
+[features]
+default = []
+menu-state = []
+
+[dependencies]
+async-channel = "2.5"
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", rev = "8166e3d7b8b42d8aaf4d4dee7fcd25ab4ec65105", default-features = false }
+log = "0.4"
+thiserror = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+image = { version = "0.25.8", default-features = false, features = ["png"] }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "NSButton",
+    "NSCell",
+    "NSControl",
+    "NSImage",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+    "NSStatusBar",
+    "NSStatusBarButton",
+    "NSStatusItem",
+    "NSView",
+    "objc2-core-foundation",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "NSArray",
+    "NSData",
+    "NSObject",
+    "NSString",
+] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+static_assertions = "1.1"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "8166e3d7b8b42d8aaf4d4dee7fcd25ab4ec65105", features = [
+    "wayland",
+    "x11",
+] }
+
+[target.'cfg(not(target_os = "linux"))'.dev-dependencies]
+gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "8166e3d7b8b42d8aaf4d4dee7fcd25ab4ec65105" }
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = "warn"
