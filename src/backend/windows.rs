@@ -32,6 +32,8 @@ use crate::{
 const CALLBACK_MESSAGE: u32 = WM_APP + 0x471;
 const ICON_ID: u32 = 1;
 
+type MenuActions = HashMap<u32, (u64, MenuItemId)>;
+
 pub(crate) struct WindowsTray {
     state: Box<WindowState>,
     closed: bool,
@@ -41,7 +43,7 @@ struct WindowState {
     hwnd: HWND,
     icon: Option<HICON>,
     menu: Option<NativeMenu>,
-    mappings: HashMap<u32, (u64, MenuItemId)>,
+    mappings: MenuActions,
     events: async_channel::Sender<BackendEvent>,
     snapshot: TraySnapshot,
 }
@@ -265,9 +267,7 @@ impl Drop for NativeMenu {
     }
 }
 
-fn build_menu(
-    snapshot: Option<&MenuSnapshot>,
-) -> Result<(Option<NativeMenu>, HashMap<u32, (u64, MenuItemId)>)> {
+fn build_menu(snapshot: Option<&MenuSnapshot>) -> Result<(Option<NativeMenu>, MenuActions)> {
     let Some(snapshot) = snapshot else {
         return Ok((None, HashMap::new()));
     };
@@ -289,7 +289,7 @@ fn append_items(
     items: &[NativeMenuItem],
     generation: u64,
     next_command: &mut u32,
-    mappings: &mut HashMap<u32, (u64, MenuItemId)>,
+    mappings: &mut MenuActions,
 ) -> Result<()> {
     for item in items {
         match item {
@@ -428,7 +428,13 @@ unsafe extern "system" fn window_proc(
         let state = unsafe { &mut *state };
         if message == CALLBACK_MESSAGE {
             let mouse_message = lparam.0 as u32;
-            if matches!(mouse_message, WM_RBUTTONUP | WM_CONTEXTMENU | WM_LBUTTONUP) {
+            if mouse_message == WM_LBUTTONUP {
+                if state.snapshot.activatable {
+                    let _ = state.events.try_send(BackendEvent::Activated);
+                } else {
+                    state.show_menu();
+                }
+            } else if matches!(mouse_message, WM_RBUTTONUP | WM_CONTEXTMENU) {
                 state.show_menu();
             }
             return LRESULT(0);
@@ -459,7 +465,7 @@ fn native_icon(icon: &Icon) -> Result<HICON> {
         .ok_or_else(|| Error::InvalidIcon("row byte count overflow".into()))?;
     let mut xor = Vec::with_capacity(icon.rgba().len());
     for row in icon.rgba().chunks_exact(row_bytes).rev() {
-        for rgba in row.chunks_exact(4) {
+        for rgba in row.as_chunks::<4>().0 {
             xor.extend_from_slice(&[rgba[2], rgba[1], rgba[0], rgba[3]]);
         }
     }

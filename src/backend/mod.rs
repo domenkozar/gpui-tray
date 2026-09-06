@@ -9,6 +9,7 @@ mod windows;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum BackendEvent {
+    Activated,
     MenuItemClicked { generation: u64, id: MenuItemId },
 }
 

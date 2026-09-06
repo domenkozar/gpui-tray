@@ -55,6 +55,14 @@ automatically rebuilt after a tray action is dispatched. With `menu-state`
 enabled, checked/disabled state produced by synchronous action handlers updates
 immediately.
 
+On Linux, use `.icon_name("my-app-symbolic")` and optionally
+`.icon_theme_path("/path/to/icons")` to let the desktop shell recolor a symbolic
+icon for its panel. Keep `.icon(...)` as the macOS, Windows, and Linux fallback.
+
+Use `.on_activate(action)` to dispatch an action for the platform's primary
+tray activation. On macOS, an attached menu takes precedence and opens on the
+primary click; activation is dispatched when the tray has no menu.
+
 `Tray::close` removes the native item deterministically and is safe to call more
 than once. Dropping the last clone performs the same cleanup on a best-effort
 basis.

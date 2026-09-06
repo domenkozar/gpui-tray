@@ -6,7 +6,7 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSControlStateValueOff, NSControlStateValueOn, NSImage, NSMenu, NSMenuItem, NSStatusBar,
-    NSStatusItem, NSVariableStatusItemLength,
+    NSStatusBarButton, NSStatusItem, NSVariableStatusItemLength,
 };
 use objc2_foundation::{NSData, NSObject, NSObjectProtocol, NSString};
 
@@ -35,6 +35,11 @@ define_class!(
     unsafe impl NSObjectProtocol for TrayTarget {}
 
     impl TrayTarget {
+        #[unsafe(method(trayActivated:))]
+        fn tray_activated(&self, _sender: &NSStatusBarButton) {
+            let _ = self.ivars().events.try_send(BackendEvent::Activated);
+        }
+
         #[unsafe(method(trayMenuItemInvoked:))]
         fn tray_menu_item_invoked(&self, sender: &NSMenuItem) {
             let tag = sender.tag();
@@ -128,6 +133,9 @@ impl MacTray {
         if old.visible != new.visible {
             self.status_item.setVisible(new.visible);
         }
+        if old.activatable != new.activatable {
+            self.set_activation(new.activatable);
+        }
         if old.menu != new.menu {
             self.set_menu(new)?;
         }
@@ -139,6 +147,7 @@ impl MacTray {
             return Ok(());
         }
         self.status_item.setMenu(None);
+        self.set_activation(false);
         self.status_bar.removeStatusItem(&self.status_item);
         self.target.reset_mappings();
         self.menu = None;
@@ -150,8 +159,26 @@ impl MacTray {
     fn apply_snapshot(&mut self, snapshot: &TraySnapshot) -> Result<()> {
         self.set_icon(snapshot.icon.as_ref())?;
         self.set_button_text(snapshot);
+        self.set_activation(snapshot.activatable);
         self.status_item.setVisible(snapshot.visible);
         self.set_menu(snapshot)
+    }
+
+    fn set_activation(&self, activatable: bool) {
+        let Some(button) = self.status_item.button(self.mtm) else {
+            return;
+        };
+        // SAFETY: `TrayTarget` implements the selected action method and is
+        // retained by `MacTray` for at least as long as the status button.
+        unsafe {
+            if activatable {
+                button.setTarget(Some(self.target.as_ref()));
+                button.setAction(Some(objc2::sel!(trayActivated:)));
+            } else {
+                button.setAction(None);
+                button.setTarget(None);
+            }
+        }
     }
 
     fn set_button_text(&self, snapshot: &TraySnapshot) {

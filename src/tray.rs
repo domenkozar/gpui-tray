@@ -25,18 +25,24 @@ pub struct Tray {
 #[must_use]
 pub struct TrayBuilder {
     icon: Option<Icon>,
+    icon_name: Option<String>,
+    icon_theme_path: Option<String>,
     title: Option<String>,
     tooltip: Option<String>,
     visible: bool,
+    activate_action: Option<Box<dyn gpui::Action>>,
     menu_builder: Option<Box<MenuBuilder>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TraySnapshot {
     pub(crate) icon: Option<Icon>,
+    pub(crate) icon_name: Option<String>,
+    pub(crate) icon_theme_path: Option<String>,
     pub(crate) title: Option<String>,
     pub(crate) tooltip: Option<String>,
     pub(crate) visible: bool,
+    pub(crate) activatable: bool,
     pub(crate) menu: Option<MenuSnapshot>,
 }
 
@@ -46,6 +52,7 @@ struct TrayInner {
     generation: Cell<u64>,
     snapshot: RefCell<TraySnapshot>,
     actions: RefCell<ActionTable>,
+    activate_action: Option<Box<dyn gpui::Action>>,
     menu_builder: Option<Box<MenuBuilder>>,
     backend: RefCell<Option<PlatformTray>>,
 }
@@ -59,6 +66,28 @@ impl Tray {
     /// Replaces or removes the tray icon.
     pub fn set_icon(&self, icon: Option<Icon>, _cx: &mut gpui::App) -> Result<()> {
         self.inner.update_snapshot(|snapshot| snapshot.icon = icon)
+    }
+
+    /// Sets a desktop icon-theme name. Linux shells can recolor names ending in
+    /// `-symbolic` to match the system panel; other backends ignore this value.
+    pub fn set_icon_name(
+        &self,
+        icon_name: Option<impl Into<String>>,
+        _cx: &mut gpui::App,
+    ) -> Result<()> {
+        self.inner
+            .update_snapshot(|snapshot| snapshot.icon_name = icon_name.map(Into::into))
+    }
+
+    /// Sets the directory used to resolve a named icon on Linux.
+    pub fn set_icon_theme_path(
+        &self,
+        icon_theme_path: Option<impl Into<String>>,
+        _cx: &mut gpui::App,
+    ) -> Result<()> {
+        self.inner.update_snapshot(|snapshot| {
+            snapshot.icon_theme_path = icon_theme_path.map(Into::into);
+        })
     }
 
     /// Replaces or removes the macOS status-item title.
@@ -98,9 +127,12 @@ impl Default for TrayBuilder {
     fn default() -> Self {
         Self {
             icon: None,
+            icon_name: None,
+            icon_theme_path: None,
             title: None,
             tooltip: None,
             visible: true,
+            activate_action: None,
             menu_builder: None,
         }
     }
@@ -110,6 +142,19 @@ impl TrayBuilder {
     /// Sets the initial icon.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// Sets an icon-theme name, such as `example-app-symbolic`, for Linux.
+    /// A pixel icon can also be supplied as a fallback for other platforms.
+    pub fn icon_name(mut self, icon_name: impl Into<String>) -> Self {
+        self.icon_name = Some(icon_name.into());
+        self
+    }
+
+    /// Sets the Linux icon-theme lookup directory for [`Self::icon_name`].
+    pub fn icon_theme_path(mut self, icon_theme_path: impl Into<String>) -> Self {
+        self.icon_theme_path = Some(icon_theme_path.into());
         self
     }
 
@@ -131,6 +176,14 @@ impl TrayBuilder {
         self
     }
 
+    /// Dispatches a GPUI action when the tray icon is primarily activated.
+    /// On macOS, an attached menu takes precedence and opens on the primary
+    /// click; the activation action is used when the tray has no menu.
+    pub fn on_activate(mut self, action: impl gpui::Action) -> Self {
+        self.activate_action = Some(Box::new(action));
+        self
+    }
+
     /// Sets the GPUI-aware menu builder.
     pub fn menu(mut self, build: impl Fn(&mut gpui::App) -> Vec<gpui::MenuItem> + 'static) -> Self {
         self.menu_builder = Some(Box::new(build));
@@ -149,9 +202,12 @@ impl TrayBuilder {
 
         let snapshot = TraySnapshot {
             icon: self.icon,
+            icon_name: self.icon_name,
+            icon_theme_path: self.icon_theme_path,
             title: self.title,
             tooltip: self.tooltip,
             visible: self.visible,
+            activatable: self.activate_action.is_some(),
             menu,
         };
         let (events_tx, events_rx) = async_channel::unbounded();
@@ -162,6 +218,7 @@ impl TrayBuilder {
             generation: Cell::new(generation),
             snapshot: RefCell::new(snapshot),
             actions: RefCell::new(actions),
+            activate_action: self.activate_action,
             menu_builder: self.menu_builder,
             backend: RefCell::new(Some(backend)),
         });
@@ -243,19 +300,32 @@ impl TrayInner {
         if self.closed.get() {
             return;
         }
-        let BackendEvent::MenuItemClicked { generation, id } = event;
-        let action = {
-            let actions = self.actions.borrow();
-            (actions.generation == generation)
-                .then(|| actions.action(id))
-                .flatten()
-        };
-        if let Some(action) = action {
-            cx.dispatch_action(action.as_ref());
-            if !self.closed.get()
-                && let Err(error) = self.refresh_menu(cx)
-            {
-                log::error!("failed to refresh tray menu after action: {error}");
+        match event {
+            BackendEvent::Activated => {
+                if let Some(action) = self.activate_action.as_ref() {
+                    cx.dispatch_action(action.as_ref());
+                    if !self.closed.get()
+                        && let Err(error) = self.refresh_menu(cx)
+                    {
+                        log::error!("failed to refresh tray menu after action: {error}");
+                    }
+                }
+            }
+            BackendEvent::MenuItemClicked { generation, id } => {
+                let action = {
+                    let actions = self.actions.borrow();
+                    (actions.generation == generation)
+                        .then(|| actions.action(id))
+                        .flatten()
+                };
+                if let Some(action) = action {
+                    cx.dispatch_action(action.as_ref());
+                    if !self.closed.get()
+                        && let Err(error) = self.refresh_menu(cx)
+                    {
+                        log::error!("failed to refresh tray menu after action: {error}");
+                    }
+                }
             }
         }
     }
@@ -298,6 +368,15 @@ mod tests {
         let builder = TrayBuilder::default();
         assert!(builder.visible);
         assert!(builder.icon.is_none());
+        assert!(builder.icon_name.is_none());
+        assert!(builder.icon_theme_path.is_none());
+        assert!(builder.activate_action.is_none());
         assert!(builder.menu_builder.is_none());
+    }
+
+    #[test]
+    fn builder_records_activation_action() {
+        let builder = TrayBuilder::default().on_activate(gpui::NoAction);
+        assert!(builder.activate_action.is_some());
     }
 }

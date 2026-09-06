@@ -49,7 +49,7 @@ impl Icon {
             .ok_or_else(|| Error::InvalidIcon("GPUI image has no frames".into()))?
             .to_vec();
         // GPUI render images are BGRA; native backends receive normalized RGBA.
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
         }
         Self::from_rgba(rgba, size.width.into(), size.height.into())

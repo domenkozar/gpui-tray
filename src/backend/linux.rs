@@ -6,7 +6,7 @@ use std::{
 };
 
 use zbus::{
-    blocking::{Connection, Proxy},
+    blocking::{Connection, Proxy, connection::Builder},
     zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Str, StructureBuilder},
 };
 
@@ -172,14 +172,6 @@ fn worker_main(
         std::process::id(),
         unique_worker_id()
     );
-    let connection = match create_connection(&service_name) {
-        Ok(connection) => connection,
-        Err(error) => {
-            let _ = ready.send(Err(error.to_string()));
-            return;
-        }
-    };
-
     let (menu, next_external_id) = compile_dbus_menu(snapshot.menu.as_ref(), 1);
     let state = Arc::new(Mutex::new(ServiceState {
         tray: snapshot,
@@ -188,24 +180,13 @@ fn worker_main(
         events,
         next_external_id,
     }));
-    if let Err(error) = connection.object_server().at(
-        ITEM_PATH,
-        StatusNotifierItem {
-            state: state.clone(),
-        },
-    ) {
-        let _ = ready.send(Err(error.to_string()));
-        return;
-    }
-    if let Err(error) = connection.object_server().at(
-        MENU_PATH,
-        DbusMenu {
-            state: state.clone(),
-        },
-    ) {
-        let _ = ready.send(Err(error.to_string()));
-        return;
-    }
+    let connection = match create_connection(&service_name, state.clone()) {
+        Ok(connection) => connection,
+        Err(error) => {
+            let _ = ready.send(Err(error.to_string()));
+            return;
+        }
+    };
 
     // A missing watcher is a normal desktop state, not a construction error.
     let _ = register_with_watcher(&connection, &service_name);
@@ -246,10 +227,20 @@ fn worker_main(
     }
 }
 
-fn create_connection(service_name: &str) -> zbus::Result<Connection> {
-    let connection = Connection::session()?;
-    connection.request_name(service_name)?;
-    Ok(connection)
+fn create_connection(
+    service_name: &str,
+    state: Arc<Mutex<ServiceState>>,
+) -> zbus::Result<Connection> {
+    Builder::session()?
+        .serve_at(
+            ITEM_PATH,
+            StatusNotifierItem {
+                state: state.clone(),
+            },
+        )?
+        .serve_at(MENU_PATH, DbusMenu { state })?
+        .name(service_name)?
+        .build()
 }
 
 fn unique_worker_id() -> u64 {
@@ -282,7 +273,9 @@ fn apply_snapshot(
         let mut state = lock(state);
         let old = &state.tray;
         let changes = (
-            old.icon != snapshot.icon,
+            old.icon != snapshot.icon
+                || old.icon_name != snapshot.icon_name
+                || old.icon_theme_path != snapshot.icon_theme_path,
             old.title != snapshot.title,
             old.tooltip != snapshot.tooltip,
             old.visible != snapshot.visible,
@@ -531,7 +524,10 @@ fn icon_pixmap(snapshot: &TraySnapshot) -> Vec<Pixmap> {
 impl StatusNotifierItem {
     fn context_menu(&self, _x: i32, _y: i32) {}
 
-    fn activate(&self, _x: i32, _y: i32) {}
+    fn activate(&self, _x: i32, _y: i32) {
+        let state = lock(&self.state);
+        let _ = state.events.try_send(BackendEvent::Activated);
+    }
 
     fn secondary_activate(&self, _x: i32, _y: i32) {}
 
@@ -567,8 +563,17 @@ impl StatusNotifierItem {
     }
 
     #[zbus(property)]
-    fn icon_name(&self) -> &str {
-        ""
+    fn icon_name(&self) -> String {
+        lock(&self.state).tray.icon_name.clone().unwrap_or_default()
+    }
+
+    #[zbus(property)]
+    fn icon_theme_path(&self) -> String {
+        lock(&self.state)
+            .tray
+            .icon_theme_path
+            .clone()
+            .unwrap_or_default()
     }
 
     #[zbus(property)]
@@ -605,7 +610,7 @@ impl StatusNotifierItem {
     fn tool_tip(&self) -> ToolTip {
         let state = lock(&self.state);
         (
-            String::new(),
+            state.tray.icon_name.clone().unwrap_or_default(),
             icon_pixmap(&state.tray),
             state.tray.title.clone().unwrap_or_default(),
             state.tray.tooltip.clone().unwrap_or_default(),
@@ -614,7 +619,7 @@ impl StatusNotifierItem {
 
     #[zbus(property)]
     fn item_is_menu(&self) -> bool {
-        true
+        !lock(&self.state).tray.activatable
     }
 
     #[zbus(property)]
@@ -750,9 +755,12 @@ mod tests {
         let icon = crate::Icon::from_rgba(vec![1, 2, 3, 4], 1, 1).unwrap();
         let snapshot = TraySnapshot {
             icon: Some(icon),
+            icon_name: None,
+            icon_theme_path: None,
             title: None,
             tooltip: None,
             visible: true,
+            activatable: false,
             menu: None,
         };
         assert_eq!(icon_pixmap(&snapshot)[0].2, vec![4, 1, 2, 3]);

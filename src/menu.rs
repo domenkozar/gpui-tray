@@ -130,18 +130,21 @@ mod tests {
         let items = vec![
             gpui::MenuItem::action("First", First).checked(true),
             gpui::MenuItem::separator(),
-            gpui::MenuItem::submenu(
-                gpui::Menu::new("Nested")
-                    .items([gpui::MenuItem::action("Second", Second).disabled(true)]),
-            ),
+            gpui::MenuItem::submenu(gpui::Menu {
+                name: "Nested".into(),
+                items: vec![gpui::MenuItem::action("Second", Second).disabled(true)],
+                disabled: false,
+            }),
         ];
         #[cfg(not(feature = "menu-state"))]
         let items = vec![
             gpui::MenuItem::action("First", First),
             gpui::MenuItem::separator(),
-            gpui::MenuItem::submenu(
-                gpui::Menu::new("Nested").items([gpui::MenuItem::action("Second", Second)]),
-            ),
+            gpui::MenuItem::submenu(gpui::Menu {
+                name: "Nested".into(),
+                items: vec![gpui::MenuItem::action("Second", Second)],
+                disabled: false,
+            }),
         ];
 
         let (snapshot, table) = compile_menu(7, items).unwrap();
