@@ -1,6 +1,11 @@
 //! A windowless GPUI application demonstrating `gpui-tray`.
 #![allow(missing_docs)]
 
+#[cfg(all(feature = "gpui-kit", not(feature = "gpui")))]
+extern crate gpui_kit as gpui;
+#[cfg(all(feature = "gpui-kit", not(feature = "gpui")))]
+use gpui_kit::platform as gpui_platform;
+
 use gpui::{App, Global, Menu, MenuItem, NoAction, QuitMode, actions};
 use gpui_tray::{Icon, Tray};
 

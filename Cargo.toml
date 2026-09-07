@@ -9,12 +9,16 @@ keywords = ["gpui", "tray", "desktop", "menu"]
 categories = ["gui"]
 
 [features]
-default = []
+default = ["gpui"]
+gpui = ["dep:gpui"]
+gpui-kit = ["dep:gpui-kit-backend"]
 menu-state = []
 
 [dependencies]
 async-channel = "2.5"
-gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", rev = "8166e3d7b8b42d8aaf4d4dee7fcd25ab4ec65105", default-features = false }
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", rev = "8166e3d7b8b42d8aaf4d4dee7fcd25ab4ec65105", default-features = false, optional = true }
+# Both packages name their Rust library `gpui`, so give the Kit backend an explicit alias.
+gpui-kit-backend = { package = "gpui-pre", version = "0.3.4", default-features = false, optional = true }
 log = "0.4"
 thiserror = "2"
 
@@ -55,6 +59,7 @@ windows = { version = "0.62", features = [
 ] }
 
 [dev-dependencies]
+gpui-kit = { version = "0.6", default-features = false }
 static_assertions = "1.1"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]

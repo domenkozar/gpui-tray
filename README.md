@@ -12,12 +12,44 @@ The crate has three native backends:
 It does not start a second application event loop. Native callbacks send small,
 platform-neutral events to a task on GPUI's foreground executor.
 
+## Choose a GPUI dependency
+
+Select exactly one backend feature. Upstream GPUI is the default:
+
+```toml
+gpui-tray = "0.1"
+```
+
+For GPUI Kit, disable the default and select `gpui-kit`:
+
+```toml
+gpui-kit = "0.6"
+gpui-tray = { version = "0.1", default-features = false, features = ["gpui-kit", "menu-state"] }
+```
+
+The `gpui-kit` feature uses `gpui-pre` 0.3.4 or a compatible 0.3.x release,
+so tray methods accept GPUI Kit's `App`, `Action`, `Image`, and `MenuItem` types
+directly. The native tray implementation is shared by both features.
+
+The default `gpui` feature keeps the existing pinned Zed Git dependency. Your
+application must resolve to the same GPUI source and version as the tray;
+a separate crates.io `gpui` or a different Git revision has distinct Rust types.
+Cargo features are additive: enabling both backend features anywhere in the
+dependency graph is an error, as is disabling both. `--all-features` therefore
+isn't a supported build; test each backend separately.
+
 ## Run the example
 
 From a graphical desktop session, run:
 
 ```sh
 cargo run --example tray --features menu-state
+```
+
+To run the same example using GPUI Kit:
+
+```sh
+cargo run --example tray --no-default-features --features gpui-kit,menu-state
 ```
 
 The example has no application window. Use its tray menu to change checked and
@@ -69,16 +101,13 @@ basis.
 
 ## Checked and disabled menu state
 
-GPUI's checked/disabled menu API currently exists on GPUI main but is not in a
-separately versioned crates.io release. Enable the `menu-state` feature when
-using a GPUI revision that provides `MenuItem::is_checked` and
-`MenuItem::is_disabled`:
+Enable the `menu-state` feature to forward `MenuItem::is_checked` and
+`MenuItem::is_disabled`. Both the pinned upstream revision and the GPUI Kit
+backend support these methods:
 
 ```toml
 gpui-tray = { version = "0.1", features = ["menu-state"] }
 ```
 
-The feature is disabled by default for compatibility with GPUI 0.2.2. Without
-it, tray menu entries are treated as enabled and unchecked. Once GPUI 0.2.3 is
-released, the existing `^0.2.2` dependency requirement can resolve to it and
-the feature will work without a git dependency.
+The feature remains opt-in. Without it, tray menu entries are treated as enabled
+and unchecked.
