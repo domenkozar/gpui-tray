@@ -43,9 +43,19 @@ The `gpui-ce` feature uses the crates.io `gpui-ce` 0.2.2 release (or a compatibl
 0.2.x release) and accepts its GPUI types directly. The native tray implementation
 is shared by all three features.
 
-The default `gpui` feature keeps the existing pinned Zed Git dependency. Your
-application must resolve to the same GPUI source and version as the tray;
-a separate crates.io `gpui` or a different Git revision has distinct Rust types.
+The default `gpui` feature uses a pinned Zed Git dependency in this repository.
+Published crates use crates.io `gpui` 0.2.2 because Cargo removes Git sources
+when packaging. To use the pinned upstream revision from a published crate,
+including its `menu-state` support, add this patch to your application's root
+`Cargo.toml`:
+
+```toml
+[patch.crates-io]
+gpui = { git = "https://github.com/zed-industries/zed.git", rev = "8166e3d7b8b42d8aaf4d4dee7fcd25ab4ec65105" }
+```
+
+Your application must resolve to the same GPUI source and version as the tray;
+a different source or Git revision has distinct Rust types.
 Cargo features are additive: enabling multiple backend features anywhere in the
 dependency graph is an error, as is disabling all three. `--all-features` therefore
 isn't a supported build; test each backend separately.
@@ -120,7 +130,9 @@ basis.
 ## Checked and disabled menu state
 
 Enable the `menu-state` feature to forward `MenuItem::is_checked` and
-`MenuItem::is_disabled`. All three GPUI dependencies support these methods:
+`MenuItem::is_disabled`. The pinned upstream revision, GPUI Kit, and GPUI
+Community Edition support these methods. When using the default backend from
+crates.io, apply the upstream patch above before enabling this feature:
 
 ```toml
 gpui-tray = { version = "0.1", features = ["menu-state"] }
