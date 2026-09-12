@@ -6,6 +6,11 @@ extern crate gpui_kit as gpui;
 #[cfg(all(feature = "gpui-kit", not(feature = "gpui")))]
 use gpui_kit::platform as gpui_platform;
 
+#[cfg(all(feature = "gpui-ce", not(any(feature = "gpui", feature = "gpui-kit"))))]
+extern crate gpui_ce_backend as gpui;
+#[cfg(all(feature = "gpui-ce", not(any(feature = "gpui", feature = "gpui-kit"))))]
+use gpui_ce_platform as gpui_platform;
+
 use gpui::{App, Global, Menu, MenuItem, NoAction, QuitMode, actions};
 use gpui_tray::{Icon, Tray};
 

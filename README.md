@@ -29,13 +29,25 @@ gpui-tray = { version = "0.1", default-features = false, features = ["gpui-kit",
 
 The `gpui-kit` feature uses `gpui-pre` 0.3.4 or a compatible 0.3.x release,
 so tray methods accept GPUI Kit's `App`, `Action`, `Image`, and `MenuItem` types
-directly. The native tray implementation is shared by both features.
+directly.
+
+For [GPUI Community Edition](https://github.com/gpui-ce/gpui-ce), disable the
+default and select `gpui-ce`:
+
+```toml
+gpui = { package = "gpui-ce", version = "0.2.2", default-features = false }
+gpui-tray = { version = "0.1", default-features = false, features = ["gpui-ce", "menu-state"] }
+```
+
+The `gpui-ce` feature uses the crates.io `gpui-ce` 0.2.2 release (or a compatible
+0.2.x release) and accepts its GPUI types directly. The native tray implementation
+is shared by all three features.
 
 The default `gpui` feature keeps the existing pinned Zed Git dependency. Your
 application must resolve to the same GPUI source and version as the tray;
 a separate crates.io `gpui` or a different Git revision has distinct Rust types.
-Cargo features are additive: enabling both backend features anywhere in the
-dependency graph is an error, as is disabling both. `--all-features` therefore
+Cargo features are additive: enabling multiple backend features anywhere in the
+dependency graph is an error, as is disabling all three. `--all-features` therefore
 isn't a supported build; test each backend separately.
 
 ## Run the example
@@ -50,6 +62,12 @@ To run the same example using GPUI Kit:
 
 ```sh
 cargo run --example tray --no-default-features --features gpui-kit,menu-state
+```
+
+To run the same example using GPUI Community Edition:
+
+```sh
+cargo run --example tray --no-default-features --features gpui-ce,menu-state
 ```
 
 The example has no application window. Use its tray menu to change checked and
@@ -102,8 +120,7 @@ basis.
 ## Checked and disabled menu state
 
 Enable the `menu-state` feature to forward `MenuItem::is_checked` and
-`MenuItem::is_disabled`. Both the pinned upstream revision and the GPUI Kit
-backend support these methods:
+`MenuItem::is_disabled`. All three GPUI dependencies support these methods:
 
 ```toml
 gpui-tray = { version = "0.1", features = ["menu-state"] }
