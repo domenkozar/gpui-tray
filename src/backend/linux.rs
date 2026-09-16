@@ -2,11 +2,11 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex, MutexGuard, mpsc},
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use zbus::{
-    blocking::{Connection, Proxy, connection::Builder},
+    blocking::{Connection, connection::Builder},
     zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Str, StructureBuilder},
 };
 
@@ -21,8 +21,7 @@ const ITEM_PATH: &str = "/StatusNotifierItem";
 const MENU_PATH: &str = "/Menu";
 const ITEM_INTERFACE: &str = "org.kde.StatusNotifierItem";
 const MENU_INTERFACE: &str = "com.canonical.dbusmenu";
-const WATCHER: &str = "org.kde.StatusNotifierWatcher";
-const WATCHER_PATH: &str = "/StatusNotifierWatcher";
+mod registration;
 
 pub(crate) struct LinuxTray {
     commands: mpsc::Sender<Command>,
@@ -189,12 +188,15 @@ fn worker_main(
     };
 
     // A missing watcher is a normal desktop state, not a construction error.
-    let _ = register_with_watcher(&connection, &service_name);
+    let mut registered_owner = None;
+    registration::refresh(&connection, &mut registered_owner);
     let _ = ready.send(Ok(()));
-    let mut watcher_was_present = false;
+    let mut next_registration_check = Instant::now() + Duration::from_secs(2);
 
     loop {
-        match commands.recv_timeout(Duration::from_secs(2)) {
+        match commands
+            .recv_timeout(next_registration_check.saturating_duration_since(Instant::now()))
+        {
             Ok(Command::Apply { snapshot, reply }) => {
                 let result = apply_snapshot(&connection, &state, snapshot)
                     .map_err(|error| error.to_string());
@@ -215,14 +217,12 @@ fn worker_main(
                 let _ = reply.send(result);
                 break;
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                let watcher_is_present = watcher_present(&connection).unwrap_or(false);
-                if watcher_is_present && !watcher_was_present {
-                    let _ = register_with_watcher(&connection, &service_name);
-                }
-                watcher_was_present = watcher_is_present;
-            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        if Instant::now() >= next_registration_check {
+            registration::refresh(&connection, &mut registered_owner);
+            next_registration_check = Instant::now() + Duration::from_secs(2);
         }
     }
 }
@@ -247,21 +247,6 @@ fn unique_worker_id() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT_ID: AtomicU64 = AtomicU64::new(1);
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
-}
-
-fn watcher_present(connection: &Connection) -> zbus::Result<bool> {
-    let proxy = Proxy::new(
-        connection,
-        "org.freedesktop.DBus",
-        "/org/freedesktop/DBus",
-        "org.freedesktop.DBus",
-    )?;
-    proxy.call("NameHasOwner", &(WATCHER))
-}
-
-fn register_with_watcher(connection: &Connection, service_name: &str) -> zbus::Result<()> {
-    let proxy = Proxy::new(connection, WATCHER, WATCHER_PATH, WATCHER)?;
-    proxy.call("RegisterStatusNotifierItem", &(service_name))
 }
 
 fn apply_snapshot(
