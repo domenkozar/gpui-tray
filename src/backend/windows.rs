@@ -464,7 +464,7 @@ fn native_icon(icon: &Icon) -> Result<HICON> {
         .and_then(|width| width.checked_mul(4))
         .ok_or_else(|| Error::InvalidIcon("row byte count overflow".into()))?;
     let mut xor = Vec::with_capacity(icon.rgba().len());
-    for row in icon.rgba().chunks_exact(row_bytes).rev() {
+    for row in icon.rgba().chunks_exact(row_bytes) {
         for rgba in row.as_chunks::<4>().0 {
             xor.extend_from_slice(&[rgba[2], rgba[1], rgba[0], rgba[3]]);
         }
@@ -474,7 +474,7 @@ fn native_icon(icon: &Icon) -> Result<HICON> {
         .saturating_mul(4);
     let and_mask = vec![0_u8; mask_stride.saturating_mul(icon.height() as usize)];
     // SAFETY: Both bit buffers cover the requested dimensions. The 32-bit XOR
-    // bitmap is bottom-up BGRA and its alpha channel supplies transparency.
+    // bitmap is top-down BGRA and its alpha channel supplies transparency.
     unsafe { CreateIcon(None, width, height, 1, 32, and_mask.as_ptr(), xor.as_ptr()) }
         .map_err(Error::native)
 }
