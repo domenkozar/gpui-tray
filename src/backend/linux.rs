@@ -46,6 +46,7 @@ struct ServiceState {
     menu: Vec<DbusMenuItem>,
     events: async_channel::Sender<BackendEvent>,
     next_external_id: i32,
+    activation_token: Option<String>,
 }
 
 #[derive(Clone)]
@@ -178,6 +179,7 @@ fn worker_main(
         menu,
         events,
         next_external_id,
+        activation_token: None,
     }));
     let connection = match create_connection(&service_name, state.clone()) {
         Ok(connection) => connection,
@@ -510,8 +512,13 @@ impl StatusNotifierItem {
     fn context_menu(&self, _x: i32, _y: i32) {}
 
     fn activate(&self, _x: i32, _y: i32) {
-        let state = lock(&self.state);
-        let _ = state.events.try_send(BackendEvent::Activated);
+        let mut state = lock(&self.state);
+        let token = state.activation_token.take();
+        let _ = state.events.try_send(BackendEvent::Activated { token });
+    }
+
+    fn provide_xdg_activation_token(&self, token: String) {
+        lock(&self.state).activation_token = (!token.is_empty()).then_some(token);
     }
 
     fn secondary_activate(&self, _x: i32, _y: i32) {}
@@ -734,6 +741,50 @@ impl DbusMenu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn activation_tokens_are_delivered_once_with_the_next_click() {
+        let (events, received) = async_channel::unbounded();
+        let item = StatusNotifierItem {
+            state: Arc::new(Mutex::new(ServiceState {
+                tray: TraySnapshot {
+                    icon: None,
+                    icon_name: None,
+                    icon_theme_path: None,
+                    title: None,
+                    tooltip: None,
+                    visible: true,
+                    activatable: true,
+                    menu: None,
+                },
+                revision: 1,
+                menu: Vec::new(),
+                events,
+                next_external_id: 1,
+                activation_token: None,
+            })),
+        };
+        let next_token = || match received.try_recv().unwrap() {
+            BackendEvent::Activated { token } => token,
+            event => panic!("unexpected event: {event:?}"),
+        };
+
+        item.provide_xdg_activation_token("first".into());
+        item.activate(0, 0);
+        item.activate(0, 0);
+        assert_eq!(next_token().as_deref(), Some("first"));
+        assert_eq!(next_token(), None);
+
+        item.provide_xdg_activation_token("superseded".into());
+        item.provide_xdg_activation_token("latest".into());
+        item.activate(0, 0);
+        assert_eq!(next_token().as_deref(), Some("latest"));
+
+        item.provide_xdg_activation_token("discarded".into());
+        item.provide_xdg_activation_token(String::new());
+        item.activate(0, 0);
+        assert_eq!(next_token(), None);
+    }
 
     #[test]
     fn rgba_is_converted_to_argb() {

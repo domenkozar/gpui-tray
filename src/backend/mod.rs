@@ -7,9 +7,9 @@ mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum BackendEvent {
-    Activated,
+    Activated { token: Option<String> },
     MenuItemClicked { generation: u64, id: MenuItemId },
 }
 

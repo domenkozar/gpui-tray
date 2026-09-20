@@ -430,7 +430,9 @@ unsafe extern "system" fn window_proc(
             let mouse_message = lparam.0 as u32;
             if mouse_message == WM_LBUTTONUP {
                 if state.snapshot.activatable {
-                    let _ = state.events.try_send(BackendEvent::Activated);
+                    let _ = state
+                        .events
+                        .try_send(BackendEvent::Activated { token: None });
                 } else {
                     state.show_menu();
                 }

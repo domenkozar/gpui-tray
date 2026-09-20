@@ -37,7 +37,7 @@ define_class!(
     impl TrayTarget {
         #[unsafe(method(trayActivated:))]
         fn tray_activated(&self, _sender: &NSStatusBarButton) {
-            let _ = self.ivars().events.try_send(BackendEvent::Activated);
+            let _ = self.ivars().events.try_send(BackendEvent::Activated { token: None });
         }
 
         #[unsafe(method(trayMenuItemInvoked:))]

@@ -10,6 +10,8 @@ use crate::{
     menu::{ActionTable, MenuSnapshot, compile_menu},
 };
 
+type ActivateCallback = dyn Fn(Option<String>, &mut gpui::App);
+
 type MenuBuilder = dyn Fn(&mut gpui::App) -> Vec<gpui::MenuItem>;
 
 /// A cloneable handle to a native tray icon.
@@ -30,7 +32,7 @@ pub struct TrayBuilder {
     title: Option<String>,
     tooltip: Option<String>,
     visible: bool,
-    activate_action: Option<Box<dyn gpui::Action>>,
+    activate_handler: Option<Box<ActivateCallback>>,
     menu_builder: Option<Box<MenuBuilder>>,
 }
 
@@ -52,7 +54,7 @@ struct TrayInner {
     generation: Cell<u64>,
     snapshot: RefCell<TraySnapshot>,
     actions: RefCell<ActionTable>,
-    activate_action: Option<Box<dyn gpui::Action>>,
+    activate_handler: Option<Box<ActivateCallback>>,
     menu_builder: Option<Box<MenuBuilder>>,
     backend: RefCell<Option<PlatformTray>>,
 }
@@ -132,7 +134,7 @@ impl Default for TrayBuilder {
             title: None,
             tooltip: None,
             visible: true,
-            activate_action: None,
+            activate_handler: None,
             menu_builder: None,
         }
     }
@@ -179,8 +181,22 @@ impl TrayBuilder {
     /// Dispatches a GPUI action when the tray icon is primarily activated.
     /// On macOS, an attached menu takes precedence and opens on the primary
     /// click; the activation action is used when the tray has no menu.
-    pub fn on_activate(mut self, action: impl gpui::Action) -> Self {
-        self.activate_action = Some(Box::new(action));
+    /// This replaces any callback configured with [`Self::on_activate_with`].
+    pub fn on_activate(self, action: impl gpui::Action) -> Self {
+        self.on_activate_with(move |_, cx| cx.dispatch_action(&action))
+    }
+
+    /// Handles primary activation, including an optional Wayland activation token.
+    ///
+    /// Linux tray hosts may supply a token using `ProvideXdgActivationToken`.
+    /// Forward it to the target window's activation API; it belongs to this
+    /// click and must not be cached or reused. Other platforms and hosts that
+    /// do not support tokens pass `None`. This replaces [`Self::on_activate`].
+    pub fn on_activate_with(
+        mut self,
+        callback: impl Fn(Option<String>, &mut gpui::App) + 'static,
+    ) -> Self {
+        self.activate_handler = Some(Box::new(callback));
         self
     }
 
@@ -207,7 +223,7 @@ impl TrayBuilder {
             title: self.title,
             tooltip: self.tooltip,
             visible: self.visible,
-            activatable: self.activate_action.is_some(),
+            activatable: self.activate_handler.is_some(),
             menu,
         };
         let (events_tx, events_rx) = async_channel::unbounded();
@@ -218,7 +234,7 @@ impl TrayBuilder {
             generation: Cell::new(generation),
             snapshot: RefCell::new(snapshot),
             actions: RefCell::new(actions),
-            activate_action: self.activate_action,
+            activate_handler: self.activate_handler,
             menu_builder: self.menu_builder,
             backend: RefCell::new(Some(backend)),
         });
@@ -301,9 +317,9 @@ impl TrayInner {
             return;
         }
         match event {
-            BackendEvent::Activated => {
-                if let Some(action) = self.activate_action.as_ref() {
-                    cx.dispatch_action(action.as_ref());
+            BackendEvent::Activated { token } => {
+                if let Some(handler) = self.activate_handler.as_ref() {
+                    handler(token, cx);
                     if !self.closed.get()
                         && let Err(error) = self.refresh_menu(cx)
                     {
@@ -370,13 +386,13 @@ mod tests {
         assert!(builder.icon.is_none());
         assert!(builder.icon_name.is_none());
         assert!(builder.icon_theme_path.is_none());
-        assert!(builder.activate_action.is_none());
+        assert!(builder.activate_handler.is_none());
         assert!(builder.menu_builder.is_none());
     }
 
     #[test]
     fn builder_records_activation_action() {
         let builder = TrayBuilder::default().on_activate(gpui::NoAction);
-        assert!(builder.activate_action.is_some());
+        assert!(builder.activate_handler.is_some());
     }
 }

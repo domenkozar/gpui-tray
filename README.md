@@ -140,3 +140,22 @@ gpui-tray = { version = "0.1", features = ["menu-state"] }
 
 The feature remains opt-in. Without it, tray menu entries are treated as enabled
 and unchecked.
+
+## Wayland activation tokens
+
+Use `.on_activate_with(|token, cx| { ... })` when the application needs the
+optional activation token supplied by its tray host. This replaces the action
+handler configured by `.on_activate(...)`; the last call wins. The callback
+runs on GPUI's foreground executor and the menu refreshes afterward.
+
+On Linux, `ProvideXdgActivationToken` supplies a token for the next primary
+activation. Each token is delivered once. Hosts without token support and
+other platforms deliver `None`. Forward a supplied token to the target
+window's Wayland activation API when presenting it. If window access must be
+deferred, move the token into that deferred callback. Do not put it in the
+process environment or reuse it for a later click. The compositor still
+controls whether focus is granted.
+
+This callback does not require a particular GPUI fork to implement token
+activation. Applications need a window API that accepts an external token;
+GPUI's ordinary `activate_window()` alone cannot use the tray host's token.
