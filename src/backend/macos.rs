@@ -1,14 +1,11 @@
 use std::cell::{Cell, RefCell};
 
-use image::ImageEncoder as _;
-use objc2::{
-    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained,
-};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained};
 use objc2_app_kit::{
     NSControlStateValueOff, NSControlStateValueOn, NSImage, NSMenu, NSMenuItem, NSStatusBar,
-    NSStatusBarButton, NSStatusItem, NSVariableStatusItemLength,
+    NSStatusBarButton, NSStatusItem, NSVariableStatusItemLength, NSView,
 };
-use objc2_foundation::{NSData, NSObject, NSObjectProtocol, NSString};
+use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
 
 use crate::{
     Error, Icon, Result,
@@ -124,7 +121,7 @@ impl MacTray {
         if self.closed {
             return Err(Error::Closed);
         }
-        if old.icon != new.icon {
+        if old.icon_revision != new.icon_revision || old.icon != new.icon {
             self.set_icon(new.icon.as_ref())?;
         }
         if old.title != new.title || old.tooltip != new.tooltip {
@@ -192,9 +189,17 @@ impl MacTray {
     }
 
     fn set_icon(&mut self, icon: Option<&Icon>) -> Result<()> {
-        self.image = icon.map(native_image).transpose()?;
+        self.image = icon.map(Icon::to_ns_image).transpose()?;
+        if let Some(image) = &self.image {
+            // Native representations may have been edited in place since the
+            // last submission. Repainting alone can reuse stale image caches.
+            image.recache();
+        }
         if let Some(button) = self.status_item.button(self.mtm) {
             button.setImage(self.image.as_deref());
+            // Setting the same native image again must still repaint after
+            // callers edit it through the low-level API.
+            NSView::setNeedsDisplay(&button, true);
         }
         Ok(())
     }
@@ -223,22 +228,6 @@ impl Drop for MacTray {
     fn drop(&mut self) {
         let _ = self.close();
     }
-}
-
-fn native_image(icon: &Icon) -> Result<Retained<NSImage>> {
-    let mut png = Vec::new();
-    image::codecs::png::PngEncoder::new(&mut png)
-        .write_image(
-            icon.rgba(),
-            icon.width(),
-            icon.height(),
-            image::ExtendedColorType::Rgba8,
-        )
-        .map_err(Error::native)?;
-    // SAFETY: NSData copies `png`, which remains valid for the duration of the call.
-    let data = unsafe { NSData::dataWithBytes_length(png.as_ptr().cast(), png.len()) };
-    NSImage::initWithData(NSImage::alloc(), &data)
-        .ok_or_else(|| Error::native_message("AppKit rejected tray icon data"))
 }
 
 fn build_menu(

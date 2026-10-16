@@ -97,7 +97,7 @@ impl WindowsTray {
         if self.closed {
             return Err(Error::Closed);
         }
-        let icon_changed = old.icon != new.icon;
+        let icon_changed = old.icon_revision != new.icon_revision || old.icon != new.icon;
         let menu_changed = old.menu != new.menu;
         let staged_menu = menu_changed
             .then(|| build_menu(new.menu.as_ref()))
@@ -465,8 +465,8 @@ fn native_icon(icon: &Icon) -> Result<HICON> {
         .ok()
         .and_then(|width| width.checked_mul(4))
         .ok_or_else(|| Error::InvalidIcon("row byte count overflow".into()))?;
-    let mut xor = Vec::with_capacity(icon.rgba().len());
-    for row in icon.rgba().chunks_exact(row_bytes) {
+    let mut xor = Vec::with_capacity(icon.rgba_bytes().len());
+    for row in icon.rgba_bytes().chunks_exact(row_bytes) {
         for rgba in row.as_chunks::<4>().0 {
             xor.extend_from_slice(&[rgba[2], rgba[1], rgba[0], rgba[3]]);
         }
