@@ -47,6 +47,9 @@ pub struct BitmapIconBuilder {
     template: bool,
 }
 
+// Keep GPUI's renderer type inferred: crates.io GPUI does not re-export it.
+type RenderGpuiImage = dyn Fn(&gpui::Image) -> Result<Arc<gpui::RenderImage>> + Send + Sync;
+
 #[derive(Clone)]
 enum BitmapInput {
     Rgba {
@@ -56,7 +59,7 @@ enum BitmapInput {
     },
     Gpui {
         image: gpui::Image,
-        renderer: gpui::SvgRenderer,
+        render: Arc<RenderGpuiImage>,
     },
 }
 
@@ -114,7 +117,12 @@ impl Icon {
     /// # }
     /// ```
     pub fn from_gpui(image: &gpui::Image, cx: &gpui::App) -> BitmapIconBuilder {
-        BitmapIconBuilder::from_gpui(image.clone(), cx.svg_renderer())
+        let renderer = cx.svg_renderer();
+        BitmapIconBuilder::from_gpui(image.clone(), move |image| {
+            image
+                .to_image_data(renderer.clone())
+                .map_err(|error| Error::InvalidIcon(error.to_string()))
+        })
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -147,8 +155,14 @@ impl BitmapIconBuilder {
         }
     }
 
-    fn from_gpui(image: gpui::Image, renderer: gpui::SvgRenderer) -> Self {
-        Self::new(BitmapInput::Gpui { image, renderer })
+    fn from_gpui(
+        image: gpui::Image,
+        render: impl Fn(&gpui::Image) -> Result<Arc<gpui::RenderImage>> + Send + Sync + 'static,
+    ) -> Self {
+        Self::new(BitmapInput::Gpui {
+            image,
+            render: Arc::new(render),
+        })
     }
 
     /// Decodes the source image, validates the bitmap, and creates an icon.
@@ -159,10 +173,8 @@ impl BitmapIconBuilder {
                 width,
                 height,
             } => (rgba, width, height),
-            BitmapInput::Gpui { image, renderer } => {
-                let rendered = image
-                    .to_image_data(renderer)
-                    .map_err(|error| Error::InvalidIcon(error.to_string()))?;
+            BitmapInput::Gpui { image, render } => {
+                let rendered = render(&image)?;
                 let mut rgba = rendered
                     .as_bytes(0)
                     .ok_or_else(|| Error::InvalidIcon("GPUI image has no frames".into()))?
@@ -229,6 +241,15 @@ impl BitmapIconBuilder {
 mod tests {
     use super::*;
 
+    fn builder_for_image(image: gpui::Image) -> BitmapIconBuilder {
+        let renderer = gpui::SvgRenderer::new(Arc::new(()));
+        BitmapIconBuilder::from_gpui(image, move |image| {
+            image
+                .to_image_data(renderer.clone())
+                .map_err(|error| Error::InvalidIcon(error.to_string()))
+        })
+    }
+
     #[test]
     fn gpui_bitmap_conversion_preserves_rgba_and_configuration() {
         let image = gpui::Image::from_bytes(
@@ -240,7 +261,7 @@ mod tests {
                 174, 66, 96, 130,
             ],
         );
-        let builder = BitmapIconBuilder::from_gpui(image, gpui::SvgRenderer::new(Arc::new(())));
+        let builder = builder_for_image(image);
         #[cfg(target_os = "macos")]
         let builder = builder.scale_factor(2.0).template(true);
         let icon = builder.build().unwrap();
@@ -260,10 +281,7 @@ mod tests {
 
     #[test]
     fn gpui_decode_errors_are_reported_by_build() {
-        let builder = BitmapIconBuilder::from_gpui(
-            gpui::Image::empty(),
-            gpui::SvgRenderer::new(Arc::new(())),
-        );
+        let builder = builder_for_image(gpui::Image::empty());
         assert!(matches!(builder.build(), Err(Error::InvalidIcon(_))));
     }
 
@@ -273,9 +291,7 @@ mod tests {
             gpui::ImageFormat::Svg,
             br##"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="3"><rect width="2" height="3" fill="#123456"/></svg>"##.to_vec(),
         );
-        let icon = BitmapIconBuilder::from_gpui(image, gpui::SvgRenderer::new(Arc::new(())))
-            .build()
-            .unwrap();
+        let icon = builder_for_image(image).build().unwrap();
         let bitmap = match icon.source {
             IconSource::Bitmap(bitmap) => bitmap,
             #[cfg(target_os = "macos")]
