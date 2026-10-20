@@ -17,14 +17,14 @@ platform-neutral events to a task on GPUI's foreground executor.
 Select exactly one backend feature. Upstream GPUI is the default:
 
 ```toml
-gpui-tray = "0.1"
+gpui-tray = "0.2"
 ```
 
 For GPUI Kit, disable the default and select `gpui-kit`:
 
 ```toml
 gpui-kit = "0.6"
-gpui-tray = { version = "0.1", default-features = false, features = ["gpui-kit", "menu-state"] }
+gpui-tray = { version = "0.2", default-features = false, features = ["gpui-kit", "menu-state"] }
 ```
 
 The `gpui-kit` feature uses `gpui-pre` 0.3.4 or a compatible 0.3.x release,
@@ -36,7 +36,7 @@ default and select `gpui-ce`:
 
 ```toml
 gpui = { package = "gpui-ce", version = "0.2.2", default-features = false }
-gpui-tray = { version = "0.1", default-features = false, features = ["gpui-ce", "menu-state"] }
+gpui-tray = { version = "0.2", default-features = false, features = ["gpui-ce", "menu-state"] }
 ```
 
 The `gpui-ce` feature uses the crates.io `gpui-ce` 0.2.2 release (or a compatible
@@ -207,7 +207,7 @@ Community Edition support these methods. When using the default backend from
 crates.io, apply the upstream patch above before enabling this feature:
 
 ```toml
-gpui-tray = { version = "0.1", features = ["menu-state"] }
+gpui-tray = { version = "0.2", features = ["menu-state"] }
 ```
 
 The feature remains opt-in. Without it, tray menu entries are treated as enabled
