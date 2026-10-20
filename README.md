@@ -1,5 +1,7 @@
 # gpui-tray
 
+[![crates.io](https://img.shields.io/crates/v/gpui-tray.svg)](https://crates.io/crates/gpui-tray)
+
 Native system tray integration for GPUI. Menus use `gpui::MenuItem` and dispatch
 GPUI actions through the application's foreground executor.
 
