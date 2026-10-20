@@ -12,9 +12,15 @@ pub enum Error {
     #[error("tray operation must run on the GPUI thread")]
     WrongThread,
 
-    /// Pixel data or dimensions supplied for an icon were invalid.
+    /// Pixel data, dimensions, or configuration supplied for an icon were invalid.
     #[error("invalid icon: {0}")]
     InvalidIcon(String),
+
+    /// The running macOS version could not resolve the requested SF Symbol.
+    /// Contains the requested symbol name.
+    #[cfg(target_os = "macos")]
+    #[error("system symbol is unavailable: {0}")]
+    UnavailableSystemSymbol(String),
 
     /// A GPUI menu item has no meaningful tray representation.
     #[error("unsupported GPUI menu item: {0}")]

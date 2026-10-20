@@ -1,3 +1,6 @@
+#[cfg(target_os = "linux")]
+mod linux;
+
 use std::{
     cell::{Cell, RefCell},
     rc::{Rc, Weak},
@@ -27,7 +30,9 @@ pub struct Tray {
 #[must_use]
 pub struct TrayBuilder {
     icon: Option<Icon>,
+    #[cfg(target_os = "linux")]
     icon_name: Option<String>,
+    #[cfg(target_os = "linux")]
     icon_theme_path: Option<String>,
     title: Option<String>,
     tooltip: Option<String>,
@@ -39,7 +44,13 @@ pub struct TrayBuilder {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TraySnapshot {
     pub(crate) icon: Option<Icon>,
+    /// Incremented by every explicit icon replacement or clear, so backends
+    /// reapply the image even when its source compares equal. Native image
+    /// equality checks identity and cannot detect edits to the same NSImage.
+    pub(crate) icon_revision: u64,
+    #[cfg(target_os = "linux")]
     pub(crate) icon_name: Option<String>,
+    #[cfg(target_os = "linux")]
     pub(crate) icon_theme_path: Option<String>,
     pub(crate) title: Option<String>,
     pub(crate) tooltip: Option<String>,
@@ -65,34 +76,29 @@ impl Tray {
         TrayBuilder::default()
     }
 
-    /// Replaces or removes the tray icon.
-    pub fn set_icon(&self, icon: Option<Icon>, _cx: &mut gpui::App) -> Result<()> {
-        self.inner.update_snapshot(|snapshot| snapshot.icon = icon)
-    }
-
-    /// Sets a desktop icon-theme name. Linux shells can recolor names ending in
-    /// `-symbolic` to match the system panel; other backends ignore this value.
-    pub fn set_icon_name(
-        &self,
-        icon_name: Option<impl Into<String>>,
-        _cx: &mut gpui::App,
-    ) -> Result<()> {
+    /// Replaces the tray icon, even if the same source was previously installed.
+    ///
+    /// On macOS, call this again after editing an icon's native `NSImage`.
+    /// Use [`Self::clear_icon`] to remove the image.
+    pub fn set_icon(&self, icon: impl Into<Icon>, _cx: &mut gpui::App) -> Result<()> {
+        let icon = icon.into();
         self.inner
-            .update_snapshot(|snapshot| snapshot.icon_name = icon_name.map(Into::into))
+            .update_snapshot(|snapshot| snapshot.replace_icon(Some(icon)))
     }
 
-    /// Sets the directory used to resolve a named icon on Linux.
-    pub fn set_icon_theme_path(
-        &self,
-        icon_theme_path: Option<impl Into<String>>,
-        _cx: &mut gpui::App,
-    ) -> Result<()> {
-        self.inner.update_snapshot(|snapshot| {
-            snapshot.icon_theme_path = icon_theme_path.map(Into::into);
-        })
+    /// Removes the tray's pixel or native image. The tray itself remains alive.
+    ///
+    /// A macOS title or a separately configured Linux icon name may still be
+    /// displayed. Use [`Self::set_visible`] to hide the entire tray item.
+    pub fn clear_icon(&self, _cx: &mut gpui::App) -> Result<()> {
+        self.inner
+            .update_snapshot(|snapshot| snapshot.replace_icon(None))
     }
 
-    /// Replaces or removes the macOS status-item title.
+    /// Replaces or removes the tray title.
+    ///
+    /// macOS displays it beside the icon. Linux hosts choose how to present it.
+    /// Windows ignores this setting.
     pub fn set_title(&self, title: Option<impl Into<String>>, _cx: &mut gpui::App) -> Result<()> {
         self.inner
             .update_snapshot(|snapshot| snapshot.title = title.map(Into::into))
@@ -129,7 +135,9 @@ impl Default for TrayBuilder {
     fn default() -> Self {
         Self {
             icon: None,
+            #[cfg(target_os = "linux")]
             icon_name: None,
+            #[cfg(target_os = "linux")]
             icon_theme_path: None,
             title: None,
             tooltip: None,
@@ -142,25 +150,15 @@ impl Default for TrayBuilder {
 
 impl TrayBuilder {
     /// Sets the initial icon.
-    pub fn icon(mut self, icon: Icon) -> Self {
-        self.icon = Some(icon);
+    pub fn icon(mut self, icon: impl Into<Icon>) -> Self {
+        self.icon = Some(icon.into());
         self
     }
 
-    /// Sets an icon-theme name, such as `example-app-symbolic`, for Linux.
-    /// A pixel icon can also be supplied as a fallback for other platforms.
-    pub fn icon_name(mut self, icon_name: impl Into<String>) -> Self {
-        self.icon_name = Some(icon_name.into());
-        self
-    }
-
-    /// Sets the Linux icon-theme lookup directory for [`Self::icon_name`].
-    pub fn icon_theme_path(mut self, icon_theme_path: impl Into<String>) -> Self {
-        self.icon_theme_path = Some(icon_theme_path.into());
-        self
-    }
-
-    /// Sets the initial status-item title. It is displayed on macOS.
+    /// Sets the initial tray title.
+    ///
+    /// macOS displays it beside the icon. Linux hosts choose how to present it.
+    /// Windows ignores this setting.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self
@@ -218,7 +216,10 @@ impl TrayBuilder {
 
         let snapshot = TraySnapshot {
             icon: self.icon,
+            icon_revision: 0,
+            #[cfg(target_os = "linux")]
             icon_name: self.icon_name,
+            #[cfg(target_os = "linux")]
             icon_theme_path: self.icon_theme_path,
             title: self.title,
             tooltip: self.tooltip,
@@ -241,6 +242,13 @@ impl TrayBuilder {
 
         spawn_event_receiver(cx, Rc::downgrade(&inner), events_rx);
         Ok(Tray { inner })
+    }
+}
+
+impl TraySnapshot {
+    fn replace_icon(&mut self, icon: Option<Icon>) {
+        self.icon = icon;
+        self.icon_revision = self.icon_revision.wrapping_add(1);
     }
 }
 
@@ -384,8 +392,11 @@ mod tests {
         let builder = TrayBuilder::default();
         assert!(builder.visible);
         assert!(builder.icon.is_none());
-        assert!(builder.icon_name.is_none());
-        assert!(builder.icon_theme_path.is_none());
+        #[cfg(target_os = "linux")]
+        {
+            assert!(builder.icon_name.is_none());
+            assert!(builder.icon_theme_path.is_none());
+        }
         assert!(builder.activate_handler.is_none());
         assert!(builder.menu_builder.is_none());
     }
@@ -394,5 +405,31 @@ mod tests {
     fn builder_records_activation_action() {
         let builder = TrayBuilder::default().on_activate(gpui::NoAction);
         assert!(builder.activate_handler.is_some());
+    }
+
+    #[test]
+    fn explicit_icon_updates_invalidate_equal_sources_and_clear() {
+        let icon = Icon::from_rgba(vec![0; 4], 1, 1).build().unwrap();
+        let mut snapshot = TraySnapshot {
+            icon: Some(icon.clone()),
+            icon_revision: 0,
+            #[cfg(target_os = "linux")]
+            icon_name: None,
+            #[cfg(target_os = "linux")]
+            icon_theme_path: None,
+            title: None,
+            tooltip: None,
+            visible: true,
+            activatable: false,
+            menu: None,
+        };
+        let previous = snapshot.clone();
+        snapshot.replace_icon(Some(icon));
+        assert_eq!(previous.icon, snapshot.icon);
+        assert_ne!(previous, snapshot);
+        let previous_revision = snapshot.icon_revision;
+        snapshot.replace_icon(None);
+        assert!(snapshot.icon.is_none());
+        assert_ne!(previous_revision, snapshot.icon_revision);
     }
 }

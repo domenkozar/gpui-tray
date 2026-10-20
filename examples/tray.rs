@@ -175,5 +175,5 @@ fn example_icon() -> gpui_tray::Result<Icon> {
         }
     }
 
-    Icon::from_rgba(rgba, SIZE, SIZE)
+    Icon::from_rgba(rgba, SIZE, SIZE).build()
 }

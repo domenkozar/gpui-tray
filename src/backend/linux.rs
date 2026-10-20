@@ -260,7 +260,8 @@ fn apply_snapshot(
         let mut state = lock(state);
         let old = &state.tray;
         let changes = (
-            old.icon != snapshot.icon
+            old.icon_revision != snapshot.icon_revision
+                || old.icon != snapshot.icon
                 || old.icon_name != snapshot.icon_name
                 || old.icon_theme_path != snapshot.icon_theme_path,
             old.title != snapshot.title,
@@ -496,8 +497,8 @@ fn icon_pixmap(snapshot: &TraySnapshot) -> Vec<Pixmap> {
     let Some(icon) = snapshot.icon.as_ref() else {
         return Vec::new();
     };
-    let mut argb = Vec::with_capacity(icon.rgba().len());
-    for rgba in icon.rgba().chunks_exact(4) {
+    let mut argb = Vec::with_capacity(icon.rgba_bytes().len());
+    for rgba in icon.rgba_bytes().chunks_exact(4) {
         argb.extend_from_slice(&[rgba[3], rgba[0], rgba[1], rgba[2]]);
     }
     vec![(
@@ -749,6 +750,7 @@ mod tests {
             state: Arc::new(Mutex::new(ServiceState {
                 tray: TraySnapshot {
                     icon: None,
+                    icon_revision: 0,
                     icon_name: None,
                     icon_theme_path: None,
                     title: None,
@@ -788,9 +790,12 @@ mod tests {
 
     #[test]
     fn rgba_is_converted_to_argb() {
-        let icon = crate::Icon::from_rgba(vec![1, 2, 3, 4], 1, 1).unwrap();
+        let icon = crate::Icon::from_rgba(vec![1, 2, 3, 4], 1, 1)
+            .build()
+            .unwrap();
         let snapshot = TraySnapshot {
             icon: Some(icon),
+            icon_revision: 0,
             icon_name: None,
             icon_theme_path: None,
             title: None,

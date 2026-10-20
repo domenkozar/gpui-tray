@@ -30,11 +30,13 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 [target.'cfg(target_os = "macos")'.dependencies]
 image = { version = "0.25.8", default-features = false, features = ["png"] }
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = [
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "NSButton",
     "NSCell",
     "NSControl",
+    "NSFontDescriptor",
     "NSImage",
+    "NSImageRep",
     "NSMenu",
     "NSMenuItem",
     "NSResponder",
@@ -47,8 +49,10 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSArray",
     "NSData",
+    "NSGeometry",
     "NSObject",
     "NSString",
+    "objc2-core-foundation",
 ] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

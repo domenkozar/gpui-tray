@@ -81,7 +81,7 @@ cargo run --example tray --no-default-features --features gpui-ce,menu-state
 ```
 
 The example has no application window. Use its tray menu to change checked and
-disabled state, increment the counter, and quit. Its icon is generated in code,
+disabled state, increment the counter, and quit. It uses a generated bitmap,
 so no external assets are required.
 
 ```rust,ignore
@@ -115,9 +115,81 @@ automatically rebuilt after a tray action is dispatched. With `menu-state`
 enabled, checked/disabled state produced by synchronous action handlers updates
 immediately.
 
-On Linux, use `.icon_name("my-app-symbolic")` and optionally
-`.icon_theme_path("/path/to/icons")` to let the desktop shell recolor a symbolic
-icon for its panel. Keep `.icon(...)` as the macOS, Windows, and Linux fallback.
+macOS displays the title beside the icon. Linux hosts choose how to present it;
+Windows ignores it. Use `.tooltip("My App")` for hover text.
+
+## Icons
+
+Create an icon from RGBA8 pixels:
+
+```rust,ignore
+let icon = Icon::from_rgba(rgba, 32, 32).build()?;
+let tray = Tray::builder().icon(icon).build(cx)?;
+```
+
+For a GPUI image, including SVG:
+
+```rust,ignore
+let icon = Icon::from_gpui(&image, cx).build()?;
+```
+
+### macOS
+
+Use `.scale_factor(2.0)` for artwork with two pixels per point and
+`.template(true)` for black artwork on a transparent background that adapts to
+the menu bar appearance:
+
+```rust,ignore
+let icon = Icon::from_rgba(rgba, 36, 36)
+    .scale_factor(2.0)
+    .template(true)
+    .build()?;
+```
+
+This displays at 18×18 points.
+
+Display an SF Symbol by its system name, such as `externaldrive`:
+
+```rust,ignore
+use gpui_tray::{Icon, SymbolScale, SymbolWeight};
+
+let icon = Icon::system_symbol("externaldrive")
+    .accessibility_description("External drive")
+    .point_size(16.0)
+    .weight(SymbolWeight::Regular)
+    .scale(SymbolScale::Medium)
+    .build()?;
+
+let tray = Tray::builder().icon(icon).build(cx)?;
+```
+
+You can also pass an `NSImage` directly to `.icon(...)` or `set_icon(...)`:
+
+```rust,ignore
+let tray = Tray::builder().icon(image).build(cx)?;
+```
+
+To customize an existing icon, use `to_ns_image()`. It returns the same image
+for a native icon and a new image for a bitmap. After editing it, call
+`tray.set_icon(image, cx)?` to update the tray.
+
+### Linux
+
+Use the icon-theme settings to let the desktop shell recolor a symbolic icon
+for its panel. Keep `.icon(...)` as the macOS, Windows, and Linux fallback:
+
+```rust,ignore
+let builder = Tray::builder().icon(icon);
+
+#[cfg(target_os = "linux")]
+let builder = builder
+    .icon_name("my-app-symbolic")
+    .icon_theme_path("/path/to/icons");
+
+let tray = builder.build(cx)?;
+```
+
+## Activation and lifecycle
 
 Use `.on_activate(action)` to dispatch an action for the platform's primary
 tray activation. On macOS, an attached menu takes precedence and opens on the

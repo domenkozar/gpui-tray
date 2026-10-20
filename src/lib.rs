@@ -1,8 +1,8 @@
 //! Native system tray integration designed specifically for GPUI.
 //!
 //! Tray menus use [`gpui::MenuItem`] directly and dispatch ordinary GPUI
-//! actions. Native backends only receive immutable, platform-neutral snapshots;
-//! they never retain or access [`gpui::App`].
+//! actions. Create icons with [`Icon::from_rgba`] or [`Icon::from_gpui`], then attach
+//! them with [`TrayBuilder::icon`].
 //!
 //! Select exactly one UI dependency: `gpui` (the default) for upstream GPUI,
 //! `gpui-kit` for GPUI Kit's `gpui-pre` types, or `gpui-ce` for GPUI Community
@@ -39,6 +39,11 @@ mod tray;
 #[cfg(any(feature = "gpui", feature = "gpui-kit", feature = "gpui-ce"))]
 pub use error::{Error, Result};
 #[cfg(any(feature = "gpui", feature = "gpui-kit", feature = "gpui-ce"))]
-pub use icon::Icon;
+pub use icon::{BitmapIconBuilder, Icon};
+#[cfg(all(
+    target_os = "macos",
+    any(feature = "gpui", feature = "gpui-kit", feature = "gpui-ce")
+))]
+pub use icon::{SymbolIconBuilder, SymbolScale, SymbolWeight};
 #[cfg(any(feature = "gpui", feature = "gpui-kit", feature = "gpui-ce"))]
 pub use tray::{Tray, TrayBuilder};
