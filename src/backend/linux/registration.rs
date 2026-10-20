@@ -1,16 +1,20 @@
-use zbus::blocking::{Connection, Proxy};
+use zbus::{Connection, Proxy, block_on};
 
 const WATCHER: &str = "org.kde.StatusNotifierWatcher";
 const WATCHER_PATH: &str = "/StatusNotifierWatcher";
 
 pub(super) fn refresh(connection: &Connection, registered_owner: &mut Option<String>) {
-    let owner = Proxy::new(
-        connection,
-        "org.freedesktop.DBus",
-        "/org/freedesktop/DBus",
-        "org.freedesktop.DBus",
-    )
-    .and_then(|proxy| proxy.call::<_, _, String>("GetNameOwner", &(WATCHER)));
+    let owner = block_on(async {
+        Proxy::new(
+            connection,
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+        )
+        .await?
+        .call::<_, _, String>("GetNameOwner", &(WATCHER))
+        .await
+    });
     let Ok(owner) = owner else {
         *registered_owner = None;
         return;
@@ -23,8 +27,11 @@ pub(super) fn refresh(connection: &Connection, registered_owner: &mut Option<Str
     };
     // Recovery services discover this connection name too. Using an alias here
     // lets the same item appear twice when recovery races our registration.
-    let result = Proxy::new(connection, owner.as_str(), WATCHER_PATH, WATCHER).and_then(|proxy| {
-        proxy.call::<_, _, ()>("RegisterStatusNotifierItem", &(identity.as_str()))
+    let result = block_on(async {
+        Proxy::new(connection, owner.as_str(), WATCHER_PATH, WATCHER)
+            .await?
+            .call::<_, _, ()>("RegisterStatusNotifierItem", &(identity.as_str()))
+            .await
     });
     if result.is_ok() {
         *registered_owner = Some(owner);
@@ -43,7 +50,7 @@ mod tests {
             atomic::{AtomicBool, AtomicUsize, Ordering},
         },
     };
-    use zbus::blocking::connection::Builder;
+    use zbus::connection::Builder;
 
     struct Bus {
         child: Child,
@@ -68,21 +75,17 @@ mod tests {
         }
 
         fn connection(&self) -> Connection {
-            Builder::address(self.address.as_str())
-                .unwrap()
-                .build()
-                .unwrap()
+            block_on(Builder::address(self.address.as_str()).build()).unwrap()
         }
 
         fn watcher(&self, state: Arc<WatcherState>) -> Connection {
-            Builder::address(self.address.as_str())
-                .unwrap()
-                .serve_at(WATCHER_PATH, Watcher { state })
-                .unwrap()
-                .name(WATCHER)
-                .unwrap()
-                .build()
-                .unwrap()
+            block_on(
+                Builder::address(self.address.as_str())
+                    .serve_at(WATCHER_PATH, Watcher { state })
+                    .name(WATCHER)
+                    .build(),
+            )
+            .unwrap()
         }
     }
 
@@ -127,23 +130,19 @@ mod tests {
         let _watcher = bus.watcher(state.clone());
         let app = bus.connection();
         let alias = "org.kde.StatusNotifierItem.Test";
-        app.request_name(alias).unwrap();
+        block_on(app.request_name(alias)).unwrap();
         let owner = app.unique_name().unwrap().as_str();
         let recovery = bus.connection();
-        let proxy = Proxy::new(&recovery, WATCHER, WATCHER_PATH, WATCHER).unwrap();
+        let proxy = block_on(Proxy::new(&recovery, WATCHER, WATCHER_PATH, WATCHER)).unwrap();
         for recovery_first in [true, false] {
             state.items.lock().unwrap().clear();
             let mut registered = None;
             if recovery_first {
-                proxy
-                    .call::<_, _, ()>("RegisterStatusNotifierItem", &(owner))
-                    .unwrap();
+                block_on(proxy.call::<_, _, ()>("RegisterStatusNotifierItem", &(owner))).unwrap();
             }
             refresh(&app, &mut registered);
             if !recovery_first {
-                proxy
-                    .call::<_, _, ()>("RegisterStatusNotifierItem", &(owner))
-                    .unwrap();
+                block_on(proxy.call::<_, _, ()>("RegisterStatusNotifierItem", &(owner))).unwrap();
             }
             assert_eq!(
                 *state.items.lock().unwrap(),
@@ -162,7 +161,7 @@ mod tests {
         refresh(&app, &mut registered);
         refresh(&app, &mut registered);
         assert_eq!(first.calls.load(Ordering::SeqCst), 1);
-        watcher.release_name(WATCHER).unwrap();
+        block_on(watcher.release_name(WATCHER)).unwrap();
         let second = Arc::new(WatcherState::default());
         let _replacement = bus.watcher(second.clone());
         refresh(&app, &mut registered);

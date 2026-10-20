@@ -6,8 +6,9 @@ use std::{
 };
 
 use zbus::{
-    blocking::{Connection, connection::Builder},
-    zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Str, StructureBuilder},
+    Connection, block_on,
+    connection::Builder,
+    wire::{ObjectPath, OwnedObjectPath, OwnedVariant, Str, StructureBuilder},
 };
 
 use crate::{
@@ -205,16 +206,18 @@ fn worker_main(
                 let _ = reply.send(result);
             }
             Ok(Command::Close { reply }) => {
-                let result = (|| -> zbus::Result<()> {
+                let result = block_on(async {
                     connection
                         .object_server()
-                        .remove::<StatusNotifierItem, _>(ITEM_PATH)?;
+                        .remove::<StatusNotifierItem, _>(ITEM_PATH)
+                        .await?;
                     connection
                         .object_server()
-                        .remove::<DbusMenu, _>(MENU_PATH)?;
-                    connection.release_name(service_name.as_str())?;
-                    Ok(())
-                })()
+                        .remove::<DbusMenu, _>(MENU_PATH)
+                        .await?;
+                    connection.release_name(service_name.as_str()).await?;
+                    Ok::<(), zbus::Error>(())
+                })
                 .map_err(|error| error.to_string());
                 let _ = reply.send(result);
                 break;
@@ -233,16 +236,20 @@ fn create_connection(
     service_name: &str,
     state: Arc<Mutex<ServiceState>>,
 ) -> zbus::Result<Connection> {
-    Builder::session()?
-        .serve_at(
-            ITEM_PATH,
-            StatusNotifierItem {
-                state: state.clone(),
-            },
-        )?
-        .serve_at(MENU_PATH, DbusMenu { state })?
-        .name(service_name)?
-        .build()
+    // The default runtime keeps serving this connection on a helper thread
+    // between block_on calls, including while the worker waits for commands.
+    block_on(
+        Builder::session()
+            .serve_at(
+                ITEM_PATH,
+                StatusNotifierItem {
+                    state: state.clone(),
+                },
+            )
+            .serve_at(MENU_PATH, DbusMenu { state })
+            .name(service_name)
+            .build(),
+    )
 }
 
 fn unique_worker_id() -> u64 {
@@ -299,13 +306,13 @@ fn apply_snapshot(
         emit_empty_signal(connection, ITEM_PATH, ITEM_INTERFACE, "NewStatus")?;
     }
     if menu_changed {
-        connection.emit_signal(
+        block_on(connection.emit_signal(
             None::<&str>,
             MENU_PATH,
             MENU_INTERFACE,
             "LayoutUpdated",
             &(revision, 0_i32),
-        )?;
+        ))?;
     }
     Ok(())
 }
@@ -316,7 +323,7 @@ fn emit_empty_signal(
     interface: &str,
     name: &str,
 ) -> zbus::Result<()> {
-    connection.emit_signal(None::<&str>, path, interface, name, &())
+    block_on(connection.emit_signal(None::<&str>, path, interface, name, &()))
 }
 
 fn compile_dbus_menu(
@@ -375,13 +382,13 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-type Properties = HashMap<String, OwnedValue>;
-type Layout = (i32, Properties, Vec<OwnedValue>);
+type Properties = HashMap<String, OwnedVariant>;
+type Layout = (i32, Properties, Vec<OwnedVariant>);
 type Pixmap = (i32, i32, Vec<u8>);
 type ToolTip = (String, Vec<Pixmap>, String, String);
 
-fn owned_string(value: impl Into<String>) -> OwnedValue {
-    OwnedValue::from(Str::from(value.into()))
+fn owned_string(value: impl Into<String>) -> OwnedVariant {
+    OwnedVariant::from(Str::from(value.into()))
 }
 
 fn item_properties(item: &DbusMenuItem, requested: &[String]) -> Properties {
@@ -403,13 +410,16 @@ fn item_properties(item: &DbusMenuItem, requested: &[String]) -> Properties {
                 properties.insert("label".into(), owned_string(label.clone()));
             }
             if wants("enabled") {
-                properties.insert("enabled".into(), OwnedValue::from(*enabled));
+                properties.insert("enabled".into(), OwnedVariant::from(*enabled));
             }
             if *checked && wants("toggle-type") {
                 properties.insert("toggle-type".into(), owned_string("checkmark"));
             }
             if *checked && wants("toggle-state") {
-                properties.insert("toggle-state".into(), OwnedValue::from(i32::from(*checked)));
+                properties.insert(
+                    "toggle-state".into(),
+                    OwnedVariant::from(i32::from(*checked)),
+                );
             }
         }
         DbusMenuItem::Submenu { label, enabled, .. } => {
@@ -417,7 +427,7 @@ fn item_properties(item: &DbusMenuItem, requested: &[String]) -> Properties {
                 properties.insert("label".into(), owned_string(label.clone()));
             }
             if wants("enabled") {
-                properties.insert("enabled".into(), OwnedValue::from(*enabled));
+                properties.insert("enabled".into(), OwnedVariant::from(*enabled));
             }
             if wants("children-display") {
                 properties.insert("children-display".into(), owned_string("submenu"));
@@ -463,7 +473,7 @@ fn all_items(items: &[DbusMenuItem]) -> Vec<&DbusMenuItem> {
     output
 }
 
-fn layout_value(item: &DbusMenuItem, depth: i32, requested: &[String]) -> OwnedValue {
+fn layout_value(item: &DbusMenuItem, depth: i32, requested: &[String]) -> OwnedVariant {
     let children = if depth == 0 {
         Vec::new()
     } else {
@@ -478,7 +488,7 @@ fn layout_value(item: &DbusMenuItem, depth: i32, requested: &[String]) -> OwnedV
         .add_field(children)
         .build()
         .expect("DBusMenu layout structure is non-empty");
-    OwnedValue::try_from(structure).expect("DBusMenu layout contains owned values")
+    OwnedVariant::try_from(structure).expect("DBusMenu layout contains owned values")
 }
 
 fn root_layout(items: &[DbusMenuItem], depth: i32, requested: &[String]) -> Layout {
@@ -674,7 +684,7 @@ impl DbusMenu {
             .collect()
     }
 
-    fn get_property(&self, id: i32, name: &str) -> zbus::fdo::Result<OwnedValue> {
+    fn get_property(&self, id: i32, name: &str) -> zbus::fdo::Result<OwnedVariant> {
         let state = lock(&self.state);
         let item = find_item(&state.menu, id)
             .ok_or_else(|| zbus::fdo::Error::Failed(format!("unknown menu item {id}")))?;
@@ -683,7 +693,7 @@ impl DbusMenu {
             .ok_or_else(|| zbus::fdo::Error::Failed(format!("unknown menu property {name}")))
     }
 
-    fn event(&self, id: i32, event_id: &str, _data: OwnedValue, _timestamp: u32) {
+    fn event(&self, id: i32, event_id: &str, _data: OwnedVariant, _timestamp: u32) {
         if event_id != "clicked" {
             return;
         }
@@ -703,7 +713,7 @@ impl DbusMenu {
         });
     }
 
-    fn event_group(&self, events: Vec<(i32, String, OwnedValue, u32)>) -> Vec<i32> {
+    fn event_group(&self, events: Vec<(i32, String, OwnedVariant, u32)>) -> Vec<i32> {
         for (id, event, data, timestamp) in events {
             self.event(id, &event, data, timestamp);
         }
