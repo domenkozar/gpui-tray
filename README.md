@@ -16,26 +16,26 @@ GPUI actions through the application's foreground executor.
 Upstream GPUI is the default:
 
 ```toml
-gpui-tray = "0.2"
+gpui-tray = "0.3"
 ```
 
 For GPUI Kit:
 
 ```toml
 gpui-kit = "0.6"
-gpui-tray = { version = "0.2", default-features = false, features = ["gpui-kit", "menu-state"] }
+gpui-tray = { version = "0.3", default-features = false, features = ["gpui-kit", "menu-state"] }
 ```
 
 For [GPUI Community Edition](https://github.com/gpui-ce/gpui-ce):
 
 ```toml
-gpui = { package = "gpui-ce", version = "0.2.2", default-features = false }
-gpui-tray = { version = "0.2", default-features = false, features = ["gpui-ce", "menu-state"] }
+gpui = { package = "gpui-ce", version = "0.3", default-features = false }
+gpui-tray = { version = "0.3", default-features = false, features = ["gpui-ce", "menu-state"] }
 ```
 
 Select exactly one of `gpui`, `gpui-kit`, or `gpui-ce`. Your application and the
 tray must use the same GPUI source and compatible versions to share Rust types.
-GPUI Kit uses `gpui-pre` 0.3.4; Community Edition uses `gpui-ce` 0.2.2, with
+GPUI Kit uses `gpui-pre` 0.3.4; Community Edition uses `gpui-ce` 0.3, with
 compatible updates allowed.
 
 ## Quick start
@@ -175,7 +175,7 @@ Published crates use crates.io `gpui` 0.2.2 for the default backend. To enable
 
 ```toml
 [dependencies]
-gpui-tray = { version = "0.2", features = ["menu-state"] }
+gpui-tray = { version = "0.3", features = ["menu-state"] }
 
 [patch.crates-io]
 gpui = { git = "https://github.com/zed-industries/zed.git", rev = "8166e3d7b8b42d8aaf4d4dee7fcd25ab4ec65105" }
@@ -204,6 +204,11 @@ The example has no application window. Its menu lets you change checked and
 disabled state, increment a counter, and quit. The bitmap is generated in code.
 Test each backend separately: `--all-features` enables mutually exclusive
 GPUI dependencies and is unsupported.
+
+## Migrating from 0.2
+
+- Community Edition users must upgrade `gpui-ce` to 0.3 and, if used,
+  `gpui_ce_platform` to 0.3 so the application and tray share the same GPUI types.
 
 ## Migrating from 0.1
 

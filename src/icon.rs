@@ -242,7 +242,11 @@ mod tests {
     use super::*;
 
     fn builder_for_image(image: gpui::Image) -> BitmapIconBuilder {
-        let renderer = gpui::SvgRenderer::new(Arc::new(()));
+        #[cfg(feature = "gpui-ce")]
+        let assets = gpui::AssetRegistry::default();
+        #[cfg(not(feature = "gpui-ce"))]
+        let assets = ();
+        let renderer = gpui::SvgRenderer::new(Arc::new(assets));
         BitmapIconBuilder::from_gpui(image, move |image| {
             image
                 .to_image_data(renderer.clone())
