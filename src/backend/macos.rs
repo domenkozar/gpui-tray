@@ -238,6 +238,8 @@ fn build_menu(
     mtm: MainThreadMarker,
 ) -> Result<Retained<NSMenu>> {
     let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str(title));
+    // Otherwise AppKit enables every item whose target responds to its action, ignoring setEnabled.
+    menu.setAutoenablesItems(false);
     for item in items {
         match item {
             NativeMenuItem::Separator => menu.addItem(&NSMenuItem::separatorItem(mtm)),
